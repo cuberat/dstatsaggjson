@@ -34,11 +34,13 @@
 // The dstatsaggjson program aggregates counts in tab-delimited files
 // where the first column is a key and the rest of the line is a JSON
 // object. Numeric values are incremented in JSON objects for matching
-// keys. For non-numeric values, the last one wins.
+// keys. For non-numeric values, the last one wins, unless there are
+// numeric values for the same key, in which case the numeric values
+// are used and non-numeric values are ignored.
 //
 // E.g., these records:
 //
-//     foo[tab]{"chips": 1, "drinks": 1}
+//     foo[tab]{"chips": 1, "drinks": 1, "frugal": false}
 //     bar[tab]{"pizza": 2, "cheese": 3}
 //     foo[tab]{"chips": 3, "frugal": true}
 //
@@ -160,8 +162,17 @@ func process_file(ctx *Ctx, reader io.Reader) {
 
             nv_v := reflect.ValueOf(nv)
             nv_is_num, nv_is_int, nv_is_signed := is_num_type(nv_v)
+
             if ov_is_num && !nv_is_num {
                 // Drop since the old value was a numeric type and this one isn't
+                continue
+            }
+
+            if !ov_is_num {
+                // Last non-numeric value wins
+                // FIXME: handle nested structures here
+
+                stored_val[nk] = nv
                 continue
             }
 
