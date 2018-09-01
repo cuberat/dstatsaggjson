@@ -31,10 +31,10 @@ Nested slices are appended.
 E.g., these records:
 
     foo[tab]{"chips": 1, "drinks": 1, "frugal": false}
-    foo[tab]{"deep": { "level1": { "level2": 1 } } }
-    foo[tab]{"chips": 3, "frugal": true, "nested": { "count": 1 } }
-    foo[tab]{ "deep": { "level1": { "level2": 2 } }, "versions": [ "1.2" ] }
-    foo[tab]{"nested": { "count": 3 }, "versions": [ "2.0" ] }
+    foo[tab]{"deep": {"level1": {"level2": 1}}}
+    foo[tab]{"chips": 3, "frugal": true, "nested": {"count": 1}}
+    foo[tab]{"deep": {"level1": {"level2": 2}}, "versions": ["1.2"]}
+    foo[tab]{"nested": {"count": 3}, "versions": ["2.0"] }
     bar[tab]{"pizza": 2, "cheese": 3}
 
 reduce to
