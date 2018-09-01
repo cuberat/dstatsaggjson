@@ -31,23 +31,33 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 // OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// The dstatsaggjson program aggregates counts in tab-delimited files
+// The statsaggjs program aggregates counts in tab-delimited files
 // where the first column is a key and the rest of the line is a JSON
 // object. Numeric values are incremented in JSON objects for matching
-// keys. For non-numeric values, the last one wins, unless there are
+// keys.
+// 
+// For non-numeric scalar values, the last one wins, unless there are
 // numeric values for the same key, in which case the numeric values
 // are used and non-numeric values are ignored.
+// 
+// Nested maps are aggregated the same way as the top
+// level.
+//
+// Nested slices are appended.
 //
 // E.g., these records:
 //
 //     foo[tab]{"chips": 1, "drinks": 1, "frugal": false}
+//     foo[tab]{"deep": { "level1": { "level2": 1 } } }
+//     foo[tab]{"chips": 3, "frugal": true, "nested": { "count": 1 } }
+//     foo[tab]{ "deep": { "level1": { "level2": 2 } }, "versions": [ "1.2" ] }
+//     foo[tab]{"nested": { "count": 3 }, "versions": [ "2.0" ] }
 //     bar[tab]{"pizza": 2, "cheese": 3}
-//     foo[tab]{"chips": 3, "frugal": true}
 //
 // reduce to
 //
-//     foo[tab]{"chips": 4, "drinks": 1, "frugal": true}
-//     bar[tab]{"pizza": 2, "cheese": 3}
+//     foo[tab]{"chips":4,"deep":{"level1":{"level2":3}},"drinks":1,"frugal":true,"nested":{"count":4},"versions":["1.2","2.0"]}
+//     bar[tab]{"cheese":3,"pizza":2}
 package main
 
 import (
@@ -118,6 +128,15 @@ func main() {
     write_data(ctx, writer)
 }
 
+func ProcessFile(reader io.Reader, delimiter string) map[string]map[string]interface{} {
+    ctx := new(Ctx)
+    ctx.Delimiter = delimiter
+    ctx.Data = make(map[string]map[string]interface{})
+
+    process_file(ctx, reader)
+    return ctx.Data
+}
+
 func process_file(ctx *Ctx, reader io.Reader) {
     data := ctx.Data
     scanner := bufio.NewScanner(reader)
@@ -144,86 +163,130 @@ func process_file(ctx *Ctx, reader io.Reader) {
             continue
         }
 
-        for nk, nv := range this_data {
-            ov, ok := stored_val[nk]
-            if !ok {
-                stored_val[nk] = nv
-                continue
-            }
-
-            // FIXME: check if int, uint, or FLOAT types
-            
-            ov_v := reflect.ValueOf(ov)
-            ov_is_num, ov_is_int, ov_is_signed := is_num_type(ov_v)
-            // if ov_is_int {
-            //     stored_val[nk] = nv
-            //     continue
-            // }
-
-            nv_v := reflect.ValueOf(nv)
-            nv_is_num, nv_is_int, nv_is_signed := is_num_type(nv_v)
-
-            if ov_is_num && !nv_is_num {
-                // Drop since the old value was a numeric type and this one isn't
-                continue
-            }
-
-            if !ov_is_num {
-                // Last non-numeric value wins
-                // FIXME: handle nested structures here
-
-                stored_val[nk] = nv
-                continue
-            }
-
-            if ov_is_int && nv_is_int {
-                if nv_is_signed == ov_is_signed {
-                    if nv_is_signed {
-                        sum := ov_v.Int() + nv_v.Int()
-                        stored_val[nk] = sum
-                    } else {
-                        sum := ov_v.Uint() + nv_v.Uint()
-                        stored_val[nk] = sum
-                    }
-                } else {
-                    if nv_is_signed {
-                        sum := int64(ov_v.Uint()) + nv_v.Int()
-                        stored_val[nk] = sum
-                    } else {
-                        sum := ov_v.Int() + int64(nv_v.Uint())
-                        stored_val[nk] = sum
-                    }
-                }
-                continue
-            }
-
-            // FIXME: handle at least one of them being a float
-            ov_float := float64(0)
-            nv_float := float64(0)
-
-            if ov_is_int {
-                if ov_is_signed {
-                    ov_float = float64(ov_v.Int())
-                } else {
-                    ov_float = float64(ov_v.Uint())
-                }
-            } else {
-                ov_float = ov_v.Float()
-            }
-
-            if nv_is_int {
-                if nv_is_signed {
-                    nv_float = float64(nv_v.Int())
-                } else {
-                    nv_float = float64(nv_v.Uint())
-                }
-            } else {
-                nv_float = nv_v.Float()
-            }
-
-            stored_val[nk] = ov_float + nv_float
+        err = aggregate(ctx, stored_val, this_data)
+        if err != nil {
+            log.Printf("couldn't aggregate: %s", err)
         }
     }
+}
+
+func aggregate(ctx *Ctx, stored_data map[string]interface{},
+    this_data map[string]interface{}) error {
+
+    for nk, nv := range this_data {
+        // log.Printf("looking at key %+v, val %+v", nk, nv)
+        ov, ok := stored_data[nk]
+        if !ok {
+            stored_data[nk] = nv
+            continue
+        }
+
+        ov_v := reflect.ValueOf(ov)
+        ov_is_num, ov_is_int, ov_is_signed := is_num_type(ov_v)
+
+        nv_v := reflect.ValueOf(nv)
+        nv_is_num, nv_is_int, nv_is_signed := is_num_type(nv_v)
+
+        if ov_is_num && !nv_is_num {
+            // Drop since the old value was a numeric type and this one isn't
+            continue
+        }
+
+        if !ov_is_num {
+            // Last non-numeric value wins
+
+            nv_kind := nv_v.Kind()
+            ov_kind := ov_v.Kind()
+
+            if nv_kind != ov_kind {
+                stored_data[nk] = nv
+                continue
+            }
+
+            if nv_kind == reflect.Map {
+                ov_map, ok := ov.(map[string]interface{})
+                if !ok {
+                    return fmt.Errorf("assertion of ov to map[string]interface{} failed")
+                }
+                nv_map, ok := nv.(map[string]interface{})
+                if !ok {
+                    return fmt.Errorf("assertion of nv to map[string]interface{} failed")
+                }
+
+                err := aggregate(ctx, ov_map, nv_map)
+                if err != nil {
+                    return err
+                }
+                continue
+            }
+
+            if nv_kind == reflect.Slice {
+                ov_slice, ok := ov.([]interface{})
+                if !ok {
+                    return fmt.Errorf("assertion of ov to []interface{} failed")
+                }
+                nv_slice, ok := nv.([]interface{})
+                if !ok {
+                    return fmt.Errorf("assertion of nv to []interface{} failed")
+                }
+
+                stored_data[nk] = append(ov_slice, nv_slice...)
+                continue
+            }
+
+            stored_data[nk] = nv
+            continue
+        }
+
+        if ov_is_int && nv_is_int {
+            if nv_is_signed == ov_is_signed {
+                if nv_is_signed {
+                    sum := ov_v.Int() + nv_v.Int()
+                    stored_data[nk] = sum
+                } else {
+                    sum := ov_v.Uint() + nv_v.Uint()
+                    stored_data[nk] = sum
+                }
+            } else {
+                if nv_is_signed {
+                    sum := int64(ov_v.Uint()) + nv_v.Int()
+                    stored_data[nk] = sum
+                } else {
+                    sum := ov_v.Int() + int64(nv_v.Uint())
+                    stored_data[nk] = sum
+                }
+            }
+            continue
+        }
+
+        // FIXME: handle at least one of them being a float
+        ov_float := float64(0)
+        nv_float := float64(0)
+
+        if ov_is_int {
+            if ov_is_signed {
+                ov_float = float64(ov_v.Int())
+            } else {
+                ov_float = float64(ov_v.Uint())
+            }
+        } else {
+            ov_float = ov_v.Float()
+        }
+
+        if nv_is_int {
+            if nv_is_signed {
+                nv_float = float64(nv_v.Int())
+            } else {
+                nv_float = float64(nv_v.Uint())
+            }
+        } else {
+            nv_float = nv_v.Float()
+        }
+
+        stored_data[nk] = ov_float + nv_float
+    }
+
+    return nil
 }
 
 func is_num_type(v reflect.Value) (bool, bool, bool) {
