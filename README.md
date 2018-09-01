@@ -1,11 +1,11 @@
-# dstatsaggjson
+# statsaggjs
 Aggregation of stats across tab-delimited JSON records
 
 Alpha release -- nested structures not supported.
 
 A better README will come later.
 
-## description
+## Description
 
 The dstatsaggjson program aggregates counts in tab-delimited files
 where the first column is a key and the rest of the line is a JSON
