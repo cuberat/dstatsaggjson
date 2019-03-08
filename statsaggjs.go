@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Don Owens <don@regexguy.com>.  All rights reserved.
+// Copyright (c) 2018-2019 Don Owens <don@regexguy.com>.  All rights reserved.
 //
 // This software is released under the BSD license:
 //
