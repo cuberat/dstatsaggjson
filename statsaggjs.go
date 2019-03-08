@@ -74,12 +74,15 @@ import (
 
 type Ctx struct {
     Delimiter string
+    Limit int
     Data map[string]map[string]interface{}
+    Writer io.Writer
 }
 
 func main() {
     var (
         delimiter string
+        entry_limit int
         outfile string
         writer io.Writer
     )
@@ -92,6 +95,9 @@ func main() {
     }
 
     flag.StringVar(&delimiter, "del", "\t", "Alternate delimiter between key and JSON object")
+    flag.IntVar(&entry_limit, "limit", 0, "If more than `limit` unique keys" +
+        " are found, the data will be flushed to output and aggregation starts" +
+        " over. A limit of zero means no limit.")
     flag.StringVar(&outfile, "outfile", "", "Output file (defaults to standard output)")
     flag.Parse()
 
@@ -109,7 +115,9 @@ func main() {
 
     ctx := new(Ctx)
     ctx.Delimiter = delimiter
+    ctx.Limit = entry_limit
     ctx.Data = make(map[string]map[string]interface{})
+    ctx.Writer = writer
 
     files := flag.Args()
     if len(files) == 0 {
@@ -128,9 +136,10 @@ func main() {
     write_data(ctx, writer)
 }
 
-func ProcessFile(reader io.Reader, delimiter string) map[string]map[string]interface{} {
+func ProcessFile(reader io.Reader, delimiter string, limit int) map[string]map[string]interface{} {
     ctx := new(Ctx)
     ctx.Delimiter = delimiter
+    ctx.Limit = 0
     ctx.Data = make(map[string]map[string]interface{})
 
     process_file(ctx, reader)
@@ -159,6 +168,12 @@ func process_file(ctx *Ctx, reader io.Reader) {
 
         stored_val, ok := data[parts[0]]
         if !ok {
+            if ctx.Limit > 0 && len(data) >= ctx.Limit {
+                write_data(ctx, ctx.Writer)
+                ctx.Data = make(map[string]map[string]interface{})
+                data = ctx.Data
+            }
+
             data[parts[0]] = this_data
             continue
         }
