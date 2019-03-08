@@ -7,10 +7,13 @@ Usage: ./statsaggjs [options] inputfiles ...
 
 Options:
 
-	-del string
-	Alternate delimiter between key and JSON object (default "\t")
-	-outfile string
-			Output file (defaults to standard output)
+    -del string
+        Alternate delimiter between key and JSON object (default "\t")
+    -limit limit
+        If more than limit unique keys are found, the data will be flushed to output and aggregation starts over. A limit of zero means no limit.
+    -outfile string
+        Output file (defaults to standard output)
+
 
 ## Description
 
