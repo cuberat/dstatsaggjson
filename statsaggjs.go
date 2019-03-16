@@ -69,6 +69,7 @@ import (
     "io"
     "os"
     "reflect"
+    "sort"
     "strings"
 )
 
@@ -77,6 +78,7 @@ type Ctx struct {
     Limit int
     Data map[string]map[string]interface{}
     Writer io.Writer
+    SortOutput bool
 }
 
 func main() {
@@ -85,6 +87,8 @@ func main() {
         entry_limit int
         outfile string
         writer io.Writer
+        sort_output bool
+        help bool
     )
 
     flag.Usage = func() {
@@ -99,7 +103,15 @@ func main() {
         " are found, the data will be flushed to output and aggregation starts" +
         " over. A limit of zero means no limit.")
     flag.StringVar(&outfile, "outfile", "", "Output file (defaults to standard output)")
+    flag.BoolVar(&sort_output, "sort", false, "Sort output")
+    flag.BoolVar(&help, "help", false, "Display this help message")
+
     flag.Parse()
+
+    if help {
+        flag.Usage()
+        os.Exit(0)
+    }
 
     if outfile == "" {
         writer = os.Stdout
@@ -118,6 +130,7 @@ func main() {
     ctx.Limit = entry_limit
     ctx.Data = make(map[string]map[string]interface{})
     ctx.Writer = writer
+    ctx.SortOutput = sort_output
 
     files := flag.Args()
     if len(files) == 0 {
@@ -337,6 +350,30 @@ func is_num_type(v reflect.Value) (bool, bool, bool) {
 
 func write_data(ctx *Ctx, writer io.Writer) {
     out_delimiter := "\t"
+
+    if ctx.SortOutput {
+        data := make([][]string, 0, len(ctx.Data))
+        for k,v := range ctx.Data {
+            serialized, err := json.Marshal(v)
+            if err != nil {
+                log.Printf("couldn't convert data to JSON")
+                continue
+            }
+            data = append(data, []string{k, string(serialized)})
+        }
+
+        sorter := new(DataSorter)
+        sorter.Data = data
+
+        sort.Sort(sorter)
+
+        for _, d := range data {
+            fmt.Fprintf(writer, "%s%s%s\n", d[0], out_delimiter, d[1])
+        }
+
+        return
+    }
+
     for k,v := range ctx.Data {
         serialized, err := json.Marshal(v)
         if err != nil {
@@ -345,4 +382,20 @@ func write_data(ctx *Ctx, writer io.Writer) {
         }
         fmt.Fprintf(writer, "%s%s%s\n", k, out_delimiter, serialized)
     }
+}
+
+type DataSorter struct {
+    Data [][]string
+}
+
+func (d *DataSorter) Len() int {
+    return len(d.Data)
+}
+
+func (d *DataSorter) Less(i, j int) bool {
+    return d.Data[i][0] < d.Data[j][0]
+}
+
+func (d *DataSorter) Swap(i, j int) {
+    d.Data[i], d.Data[j] = d.Data[j], d.Data[i]
 }
