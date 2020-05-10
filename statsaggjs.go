@@ -1,4 +1,4 @@
-// Copyright (c) 2018-2019 Don Owens <don@regexguy.com>.  All rights reserved.
+// Copyright (c) 2018-2020 Don Owens <don@regexguy.com>.  All rights reserved.
 //
 // This software is released under the BSD license:
 //
@@ -35,11 +35,11 @@
 // where the first column is a key and the rest of the line is a JSON
 // object. Numeric values are incremented in JSON objects for matching
 // keys.
-// 
+//
 // For non-numeric scalar values, the last one wins, unless there are
 // numeric values for the same key, in which case the numeric values
 // are used and non-numeric values are ignored.
-// 
+//
 // Nested maps are aggregated the same way as the top
 // level.
 //
@@ -79,6 +79,7 @@ type Ctx struct {
     Data map[string]map[string]interface{}
     Writer io.Writer
     SortOutput bool
+    Panic bool
 }
 
 func main() {
@@ -89,6 +90,7 @@ func main() {
         writer io.Writer
         sort_output bool
         help bool
+        bad_input_is_fatal bool
     )
 
     flag.Usage = func() {
@@ -100,11 +102,13 @@ func main() {
 
     flag.StringVar(&delimiter, "del", "\t", "Alternate delimiter between key and JSON object")
     flag.IntVar(&entry_limit, "limit", 0, "If more than `limit` unique keys" +
-        " are found, the data will be flushed to output and aggregation starts" +
-        " over. A limit of zero means no limit.")
+        " are found, the data will be flushed to output and aggregation " +
+        "starts over. A limit of zero means no limit.")
     flag.StringVar(&outfile, "outfile", "", "Output file (defaults to standard output)")
     flag.BoolVar(&sort_output, "sort", false, "Sort output")
     flag.BoolVar(&help, "help", false, "Display this help message")
+    flag.BoolVar(&bad_input_is_fatal, "panic", false, "Treat bad input as a " +
+        "fatal error")
 
     flag.Parse()
 
@@ -131,6 +135,7 @@ func main() {
     ctx.Data = make(map[string]map[string]interface{})
     ctx.Writer = writer
     ctx.SortOutput = sort_output
+    ctx.Panic = bad_input_is_fatal
 
     files := flag.Args()
     if len(files) == 0 {
@@ -169,8 +174,11 @@ func process_file(ctx *Ctx, reader io.Reader) {
         line_cnt++
         parts := strings.SplitN(line, ctx.Delimiter, 2)
         if len(parts) < 2 {
-            log.Fatalf("wrong number of fields at line %d: %d: '%s'", line_cnt,
+            log.Printf("wrong number of fields at line %d: %d: '%s'", line_cnt,
                 len(parts), line)
+            if ctx.Panic {
+                os.Exit(1)
+            }
         }
         this_data := make(map[string]interface{})
         err := json.Unmarshal([]byte(parts[1]), &this_data)
